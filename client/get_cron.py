@@ -1,19 +1,19 @@
-import re
+import os
 import glob
 import json
+import socket
 import struct
 import logging
 from datetime import datetime
 from threading import Thread, Event
-from socket import socket, AF_INET, SOCK_STREAM, gethostname
 
 __version__ = "0.0.1"
 
 
-def get_ip():
+def get_ip(dest_ip='115.239.211.112'):
     try:
-        sock = socket.socket(socket.AF_INET, SOCK_STREAM)
-        sock.connect(('8.8.8.8', 80))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((dest_ip, 80))
         address, port = sock.getsockname()
         sock.close()
         return address
@@ -24,7 +24,7 @@ def get_ip():
 def encode_data(data):
     data = json.dumps(data).encode()
     length = len(data)
-    return struct.pack("<l{}s".format(length). length, data)
+    return struct.pack("<l{}s".format(length), length, data)
 
 
 class GetCron:
@@ -34,33 +34,37 @@ class GetCron:
         self.master = master
         self.user_cron = []
         self.crontab = []
-        self.all_cron = {}
+        self.cron_fact = {}
         self.files = glob.glob("/var/spool/cron/*")
         self.so = None
 
     def connect(self):
-        self.so = socket(AF_INET, SOCK_STREAM)
+        self.so = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.so.connect(self.master)
 
     def col_cron(self): 
         for files in self.files:
-            with open(i) as f:
+            with open(files) as f:
                 for i in f:
-                    self.user_cron.append(i.rstrip("\n")) 
-        self.all_cron["user_cron"] = self.user_cron
+                    self.user_cron.append(i.rstrip("\n"))
+        if self.user_cron:
+            self.cron_fact["user_cron"] = self.user_cron
+            self.user_cron = []
 
     def col_crontab(self):
         with open("/etc/crontab") as f:
             for line in f:
                 if not ("=" in line or line.startswith(("#", " #")) or line == "\n"):
                     self.crontab.append(line)
-        self.all_cron["crontab"] = self.crontab
+        if self.crontab:
+            self.cron_fact["crontab"] = self.crontab
+            self.crontab = []
 
-    def tail_n(self, files, interval=10, num=10):
-        pos = 0
+    def tail_f(self, files, interval=10, num=10):
+        cur_pos = os.path.getsize(files)
         while True:
-            with open(args) as f:
-                cur_pos = f.seek(0,2)
+            with open(files) as f:
+                f.seek(0,2)
                 pos = cur_pos - interval
                 interval += interval
                 f.seek(pos)
@@ -68,43 +72,43 @@ class GetCron:
                 if len(rest) > num:
                     return rest[::-1][:num]
 
-    def hearbeat(self):
+    def heartbeat(self):
         self.col_crontab()
         self.col_cron()
+        print("prepare data", socket.gethostname())
         data = {
-            'host': gethostname,
+            'host': socket.gethostname(),
             "ip": get_ip(),
             "version": __version__,
             "timestamp": datetime.now().timestamp(),
-            "cron_fact": self.data,
+            "cron_fact": self.cron_fact,
         }
         try:
-            self.so.send(encode(data))
+            print(data)
+            return encode_data(data)
         except Exception as e:
             logging.error("send heartbeat error: {}".format(e))
             self.connect()
 
     def send(self):
-        self.connect()
-        while not event.is_set():
-            self.read_cron()
-            self.read_crontab()
-            data = encode_data(self.data)
-            self.socket.send(data)
-            event.wait(5)
+        while not self.event.is_set():
+            self.connect()
+            data = self.heartbeat()
+            self.so.send(data)
+            self.event.wait(5)
   
     def start(self):
         t = Thread(target=self.send)
         try:
             t.start()
-        except:
+        except Exception as e:
             self.event.set()
 
     def shutdown(self):
         self.event.set()
 
 if __name__ == '__main__':
-    cron = GetCron()
+    cron = GetCron(('172.16.20.119', 5888))
     try:
         cron.start()
     except KeyboardInterrupt:
