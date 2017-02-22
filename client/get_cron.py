@@ -1,14 +1,20 @@
 import os
+import pytz
 import glob
 import json
+import distro
 import socket
 import struct
 import logging
+import platform
+from pyhocon import ConfigFactory
 from datetime import datetime
 from threading import Thread, Event
 
 __version__ = "0.0.1"
 
+BASE_DIR = os.getcwd()
+conf = ConfigFactory.parse_file(os.path.join(BASE_DIR, "conf/client.conf"))
 
 def get_ip(dest_ip='115.239.211.112'):
     try:
@@ -30,17 +36,19 @@ def encode_data(data):
 class GetCron:
     event = Event()
 
-    def __init__(self, master):
+    def __init__(self, master, timezone='Asia/Shanghai'):
         self.master = master
         self.user_cron = []
         self.crontab = []
         self.cron_fact = {}
         self.files = glob.glob("/var/spool/cron/*")
         self.so = None
+        self.timezone = timezone
 
     def connect(self):
-        self.so = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.so = socket.socket()
         self.so.connect(self.master)
+        print("4444")
 
     def col_cron(self): 
         for files in self.files:
@@ -72,16 +80,23 @@ class GetCron:
                 if len(rest) > num:
                     return rest[::-1][:num]
 
+    def get_timestamp(self):
+        timez = pytz.timezone(self.timezone)
+        now = timez.localize(datetime.now()).timestamp()
+        return now
+
     def heartbeat(self):
         self.col_crontab()
         self.col_cron()
-        print("prepare data", socket.gethostname())
         data = {
-            'host': socket.gethostname(),
+            'hostname': platform.node(),
             "ip": get_ip(),
+            "platform": platform.machine(),
+            "sys_type": platform.system(),
+            "dist": " ".join(distro.linux_distribution()),
             "version": __version__,
-            "timestamp": datetime.now().timestamp(),
-            "cron_fact": self.cron_fact,
+            "timestamp": self.get_timestamp(),
+            "cron_info": self.cron_fact,
         }
         try:
             print(data)
@@ -91,16 +106,16 @@ class GetCron:
             self.connect()
 
     def send(self):
-        while not self.event.is_set():
-            self.connect()
-            data = self.heartbeat()
+        self.connect()
+        data = self.heartbeat()
+        if data:
             self.so.send(data)
-            self.event.wait(5)
   
     def start(self):
-        t = Thread(target=self.send)
         try:
-            t.start()
+            while not self.event.is_set():
+                self.send()
+                self.event.wait(30)
         except Exception as e:
             self.event.set()
 
@@ -108,7 +123,7 @@ class GetCron:
         self.event.set()
 
 if __name__ == '__main__':
-    cron = GetCron(('172.16.20.119', 5888))
+    cron = GetCron((conf.get("server"), conf.get("port")))
     try:
         cron.start()
     except KeyboardInterrupt:
