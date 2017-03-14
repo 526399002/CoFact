@@ -1,12 +1,12 @@
 import os
 import django
+import json
+import struct
+import datetime
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "cofact.settings")
 django.setup()
 
-import json
-import struct
-import datetime
 from cron.models import *
 from socketserver import BaseRequestHandler, ThreadingTCPServer
 
@@ -32,6 +32,7 @@ class CollectionServer(BaseRequestHandler):
 
     def ins_crontab_info(self, agent_id):
         time_data = datetime.datetime.fromtimestamp(self.buffer["timestamp"])
+        print(time_data)
         Crontab_info.objects.create(cron=agent_id,
                                     timestamp=time_data,
                                     version=self.buffer["version"],
@@ -40,7 +41,7 @@ class CollectionServer(BaseRequestHandler):
 
     def ins_agent(self):
         agent_id, *_ = Agent.objects.get_or_create(ip=self.buffer["ip"],
-                                               hostname=self.buffer["hostname"])
+                                                   hostname=self.buffer["hostname"])
         self.ins_system_info(agent_id)
         self.ins_crontab_info(agent_id)
         self.buffer = None
@@ -58,7 +59,6 @@ class CollectionServer(BaseRequestHandler):
                 break
 
 if __name__ == '__main__':
-
     serv = ThreadingTCPServer(("", 15888), CollectionServer)
     try:
         serv.serve_forever()
